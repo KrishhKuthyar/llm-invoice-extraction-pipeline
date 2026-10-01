@@ -1,0 +1,7 @@
+.venv/
+.venv-airflow/
+minio-data/
+airflow_home/logs/
+__pycache__/
+*.pyc
+.git/

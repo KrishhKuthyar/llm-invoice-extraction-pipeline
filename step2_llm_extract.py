@@ -61,9 +61,13 @@ def coerce_types(invoice_data: dict) -> dict:
 
 if __name__ == "__main__":
     from step1_extract_text import extract_text
+    from step3_store_postgres import store_invoice
 
     invoice_text = extract_text("sample_invoice.pdf")
     raw_result = extract_invoice_data(invoice_text)
     result = coerce_types(raw_result)
 
     print(json.dumps(result, indent=2, ensure_ascii=False))
+
+    invoice_id = store_invoice(result)
+    print(f"\nStored as invoices.id = {invoice_id}")

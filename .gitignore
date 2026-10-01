@@ -1,7 +1,16 @@
 .venv/
+.venv-airflow/
 .env
 __pycache__/
 *.pyc
 .DS_Store
 minio-data/
 minio.log
+
+# Airflow home: only the DAG source is version-controlled.
+# Everything else (airflow.cfg has a generated fernet_key/secret_key,
+# logs, the sqlite/pid files) is local runtime state.
+airflow_home/*
+!airflow_home/dags/
+!airflow_home/dags/**
+airflow_home/dags/__pycache__/

@@ -4,7 +4,7 @@ import psycopg2
 
 
 def store_invoice(invoice_data: dict) -> int:
-    conn = psycopg2.connect(dbname="invoice_db")
+    conn = psycopg2.connect(dbname="invoice_db", gssencmode="disable")
 
     with conn:
         with conn.cursor() as cursor:

@@ -36,7 +36,7 @@ def build_user_prompt(invoice_text: str) -> str:
 
 def extract_invoice_data(invoice_text: str) -> dict:
     response = client.chat.completions.create(
-        model="openai/gpt-oss-120b",
+        model=os.environ["GROQ_MODEL"],
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": build_user_prompt(invoice_text)},
@@ -62,12 +62,25 @@ def coerce_types(invoice_data: dict) -> dict:
 if __name__ == "__main__":
     from step1_extract_text import extract_text
     from step3_store_postgres import store_invoice
+    from step4_minio_source import get_client, list_incoming_pdfs, download_pdf, move_to_processed
 
-    invoice_text = extract_text("sample_invoice.pdf")
+    BUCKET = os.environ["MINIO_BUCKET"]
+
+    minio_client = get_client()
+    pending_keys = list_incoming_pdfs(minio_client, BUCKET)
+    print(f"Found {len(pending_keys)} pending invoice(s) in incoming/: {pending_keys}")
+
+    key = pending_keys[0]
+    pdf_stream = download_pdf(minio_client, BUCKET, key)
+
+    invoice_text = extract_text(pdf_stream)
     raw_result = extract_invoice_data(invoice_text)
     result = coerce_types(raw_result)
 
     print(json.dumps(result, indent=2, ensure_ascii=False))
 
     invoice_id = store_invoice(result)
-    print(f"\nStored as invoices.id = {invoice_id}")
+    print(f"Stored as invoices.id = {invoice_id}")
+
+    new_key = move_to_processed(minio_client, BUCKET, key)
+    print(f"Moved {key} -> {new_key}")

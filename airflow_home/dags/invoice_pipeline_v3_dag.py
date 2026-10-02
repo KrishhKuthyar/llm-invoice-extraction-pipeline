@@ -5,13 +5,34 @@ from pathlib import Path
 from typing import List
 
 from airflow.decorators import dag, task
-from airflow_ai_sdk.models.base import BaseModel
 from dotenv import load_dotenv
-from pydantic_ai.models.groq import GroqModel
+from pydantic import BaseModel
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 load_dotenv(PROJECT_ROOT / ".env")
+
+SYSTEM_PROMPT = (
+    "You are an expert at extracting structured data from UberEats "
+    "invoices. Extract all information matching the InvoiceData schema. "
+    "Be precise with monetary values and dates; all amounts must be "
+    "numbers, not strings.\n\n"
+    "Field guidance:\n"
+    '- order_id: the order number shown near the top (e.g. "Pedido #1234" '
+    "-> \"1234\"). Do NOT use any UUID, tracking ID, or transaction ID "
+    "found elsewhere in the invoice.\n"
+    "- restaurant: the restaurant's name.\n"
+    "- datetime: the order date/time converted to ISO 8601 format "
+    '(YYYY-MM-DDTHH:MM:SS), not the invoice\'s original text format.\n'
+    "- items: every ordered item, with its name, quantity, unit price, "
+    "and total price.\n"
+    "- subtotal, delivery_fee, service_fee, discount, tip, total: the "
+    "matching monetary line items from the payment summary.\n"
+    "- payment_method: how the order was paid (card type/last digits, "
+    "PIX, etc).\n"
+    "- delivery_address: the customer's delivery address, not the "
+    "restaurant's address."
+)
 
 
 class InvoiceItem(BaseModel):
@@ -61,38 +82,22 @@ def invoice_extraction_pipeline_v3():
         pdf_stream = download_pdf(client, os.environ["MINIO_BUCKET"], key)
         return extract_text(pdf_stream)
 
-    @task.llm(
-        model=GroqModel(os.environ["GROQ_MODEL"]),
-        system_prompt=(
-            "You are an expert at extracting structured data from UberEats "
-            "invoices. Extract all information matching the InvoiceData schema. "
-            "Be precise with monetary values and dates; all amounts must be "
-            "numbers, not strings.\n\n"
-            "Field guidance:\n"
-            '- order_id: the order number shown near the top (e.g. "Pedido #1234" '
-            "-> \"1234\"). Do NOT use any UUID, tracking ID, or transaction ID "
-            "found elsewhere in the invoice.\n"
-            "- restaurant: the restaurant's name.\n"
-            "- datetime: the order date/time as shown on the invoice.\n"
-            "- items: every ordered item, with its name, quantity, unit price, "
-            "and total price.\n"
-            "- subtotal, delivery_fee, service_fee, discount, tip, total: the "
-            "matching monetary line items from the payment summary.\n"
-            "- payment_method: how the order was paid (card type/last digits, "
-            "PIX, etc).\n"
-            "- delivery_address: the customer's delivery address, not the "
-            "restaurant's address."
-        ),
-        result_type=InvoiceData,
-    )
-    def extract_invoice_with_ai_sdk(invoice_text: str) -> str:
-        return invoice_text
+    @task()
+    def extract_invoice_with_ai_sdk(invoice_text: str) -> dict:
+        from pydantic_ai import Agent
+        from pydantic_ai.models.groq import GroqModel
+
+        model = GroqModel(os.environ["GROQ_MODEL"])
+        agent = Agent(model, output_type=InvoiceData, system_prompt=SYSTEM_PROMPT)
+        result = agent.run_sync(invoice_text)
+        return result.output.model_dump()
 
     @task()
-    def store_and_move(key: str, invoice_data: dict) -> dict:
+    def store_and_move(key_and_data: tuple) -> dict:
         from step3_store_postgres import store_invoice
         from step4_minio_source import get_client, move_to_processed
 
+        key, invoice_data = key_and_data
         invoice_id = store_invoice(invoice_data)
         client = get_client()
         new_key = move_to_processed(client, os.environ["MINIO_BUCKET"], key)
@@ -101,7 +106,10 @@ def invoice_extraction_pipeline_v3():
     pending_keys = list_pending_invoices()
     texts = download_and_extract_text.expand(key=pending_keys)
     extracted = extract_invoice_with_ai_sdk.expand(invoice_text=texts)
-    store_and_move.expand(key=pending_keys, invoice_data=extracted)
+    # .expand(key=pending_keys, invoice_data=extracted) would do a CROSS PRODUCT
+    # (every key paired with every result) -- .zip() pairs them by index instead,
+    # matching each file to its own extraction result.
+    store_and_move.expand(key_and_data=pending_keys.zip(extracted))
 
 
 invoice_extraction_pipeline_v3()

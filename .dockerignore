@@ -1,5 +1,7 @@
 .venv/
 .venv-airflow/
+.venv-x86-broken/
+.venv-airflow-x86-broken/
 minio-data/
 airflow_home/logs/
 __pycache__/

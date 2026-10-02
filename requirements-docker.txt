@@ -4,4 +4,4 @@ python-dotenv==1.2.1
 psycopg2-binary==2.9.12
 minio==7.2.20
 langfuse==2.60.10
-airflow-ai-sdk[openai]==0.1.6
+pydantic-ai-slim[groq,openai]==2.53.0

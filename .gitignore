@@ -1,6 +1,7 @@
 .venv/
 .venv-x86-broken/
 .venv-airflow/
+.venv-airflow-x86-broken/
 .env
 __pycache__/
 *.pyc

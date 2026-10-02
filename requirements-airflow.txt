@@ -1,11 +1,12 @@
 # Airflow needs its own virtual environment (separate from requirements.txt)
 # because it pins specific versions of its own dependencies via a constraints
-# file. Set up with:
+# file. Use a native-arch Python (not an x86_64 build running under Rosetta
+# on Apple Silicon -- that caused real, hard-to-diagnose hangs). Set up with:
 #
-#   python3 -m venv .venv-airflow
+#   python3.11 -m venv .venv-airflow
 #   source .venv-airflow/bin/activate
 #   AIRFLOW_VERSION=2.9.3
-#   PYTHON_VERSION=3.9
+#   PYTHON_VERSION=3.11
 #   pip install "apache-airflow==${AIRFLOW_VERSION}" \
 #     --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-${AIRFLOW_VERSION}/constraints-${PYTHON_VERSION}.txt"
 #   pip install -r requirements-airflow.txt
@@ -19,3 +20,5 @@ groq==1.0.0
 python-dotenv==1.2.1
 psycopg2-binary==2.9.12
 minio==7.2.20
+langfuse==2.60.10
+airflow-ai-sdk[openai]==0.1.6

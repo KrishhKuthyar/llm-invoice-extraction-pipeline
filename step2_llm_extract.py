@@ -51,6 +51,46 @@ def log_to_langfuse(name: str, model: str, prompt: str, output: str, usage_detai
         timeout=15,
     )
 
+def build_batch_user_prompt(invoice_texts: list) -> str:
+    invoices_block = "\n\n".join(
+        f"=== Invoice {i + 1} ===\n{text}" for i, text in enumerate(invoice_texts)
+    )
+    return (
+        f"Extract data from these {len(invoice_texts)} invoices:\n\n{invoices_block}\n\n"
+        f'Return a JSON object: {{"invoices": [...]}} where the array has exactly '
+        f"{len(invoice_texts)} objects, one per invoice in the same order, each matching: "
+        f"{json.dumps(INVOICE_SCHEMA)}"
+    )
+
+def extract_invoice_batch_data(invoice_texts: list) -> list:
+    model = os.environ["GROQ_MODEL"]
+    user_prompt = build_batch_user_prompt(invoice_texts)
+    response = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ],
+        temperature=0,
+        max_tokens=1200 * len(invoice_texts),
+        response_format={"type": "json_object"},
+    )
+    output_text = response.choices[0].message.content
+    log_to_langfuse(
+        name="extract_invoice_batch_data",
+        model=model,
+        prompt=user_prompt,
+        output=output_text,
+        usage_details={
+            "input": response.usage.prompt_tokens,
+            "output": response.usage.completion_tokens,
+        },
+    )
+    results = json.loads(output_text)["invoices"]
+    if len(results) != len(invoice_texts):
+        raise ValueError(f"Expected {len(invoice_texts)} results, got {len(results)}")
+    return results
+
 def extract_invoice_data(invoice_text: str) -> dict:
     model = os.environ["GROQ_MODEL"]
     user_prompt = build_user_prompt(invoice_text)
@@ -61,6 +101,7 @@ def extract_invoice_data(invoice_text: str) -> dict:
             {"role": "user", "content": user_prompt},
         ],
         temperature=0,
+        max_tokens=1200,
         response_format={"type": "json_object"},
     )
     output_text = response.choices[0].message.content
@@ -100,17 +141,15 @@ if __name__ == "__main__":
     pending_keys = list_incoming_pdfs(minio_client, BUCKET)
     print(f"Found {len(pending_keys)} pending invoice(s) in incoming/: {pending_keys}")
 
-    key = pending_keys[0]
-    pdf_stream = download_pdf(minio_client, BUCKET, key)
+    invoice_texts = [
+        extract_text(download_pdf(minio_client, BUCKET, key)) for key in pending_keys
+    ]
 
-    invoice_text = extract_text(pdf_stream)
-    raw_result = extract_invoice_data(invoice_text)
-    result = coerce_types(raw_result)
+    raw_results = extract_invoice_batch_data(invoice_texts)
+    print(f"Got {len(raw_results)} results back from 1 LLM call")
 
-    print(json.dumps(result, indent=2, ensure_ascii=False))
-
-    invoice_id = store_invoice(result)
-    print(f"Stored as invoices.id = {invoice_id}")
-
-    new_key = move_to_processed(minio_client, BUCKET, key)
-    print(f"Moved {key} -> {new_key}")
+    for key, raw_result in zip(pending_keys, raw_results):
+        result = coerce_types(raw_result)
+        invoice_id = store_invoice(result)
+        new_key = move_to_processed(minio_client, BUCKET, key)
+        print(f"  {key}: stored as id={invoice_id}, moved -> {new_key}")

@@ -1,6 +1,6 @@
 # LLM Invoice Extraction Pipeline
 
-This is Module 1 of the [AI Data Engineer Bootcamp](https://github.com/owshq-academy/ai-data-engineer-bootcamp) rebuilt from scratch, one piece at a time, to actually understand what each part does instead of just running someone else's `docker-compose up`.
+Inspired by and rebuilt from [owshq-academy](https://github.com/owshq-academy)'s AI Data Engineer Bootcamp — built from scratch, one piece at a time, to actually understand what each part does instead of just running someone else's `docker-compose up`.
 
 The job: pull UberEats PDF invoices out of object storage, hand the text to an LLM, get structured data back, store it in Postgres. Simple on paper. The interesting part is everything around that one sentence — orchestration, observability, batching, and about a dozen real bugs along the way, several of which turned out to be in the *original* repo, not just in this rebuild.
 

@@ -1,5 +1,7 @@
 import json
 import os
+import subprocess
+import sys
 
 from dotenv import load_dotenv
 from groq import Groq
@@ -34,17 +36,45 @@ def build_user_prompt(invoice_text: str) -> str:
         f"Return JSON matching this shape:\n{json.dumps(INVOICE_SCHEMA)}"
     )
 
+def log_to_langfuse(name: str, model: str, prompt: str, output: str, usage_details: dict) -> None:
+    payload = json.dumps({
+        "name": name,
+        "model": model,
+        "input": prompt,
+        "output": output,
+        "usage_details": usage_details,
+    })
+    subprocess.run(
+        [sys.executable, os.path.join(os.path.dirname(__file__), "log_to_langfuse.py")],
+        input=payload,
+        text=True,
+        timeout=15,
+    )
+
 def extract_invoice_data(invoice_text: str) -> dict:
+    model = os.environ["GROQ_MODEL"]
+    user_prompt = build_user_prompt(invoice_text)
     response = client.chat.completions.create(
-        model=os.environ["GROQ_MODEL"],
+        model=model,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": build_user_prompt(invoice_text)},
+            {"role": "user", "content": user_prompt},
         ],
         temperature=0,
         response_format={"type": "json_object"},
     )
-    return json.loads(response.choices[0].message.content)
+    output_text = response.choices[0].message.content
+    log_to_langfuse(
+        name="extract_invoice_data",
+        model=model,
+        prompt=user_prompt,
+        output=output_text,
+        usage_details={
+            "input": response.usage.prompt_tokens,
+            "output": response.usage.completion_tokens,
+        },
+    )
+    return json.loads(output_text)
 
 def coerce_types(invoice_data: dict) -> dict:
     numeric_fields = ["subtotal", "delivery_fee", "service_fee", "discount", "tip", "total"]
